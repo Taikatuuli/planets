@@ -21,18 +21,18 @@
 
     #fact-sheet {
       position: fixed;
-      top: 0;
-      right: 0;
-      width: 40%;
-      height: 100%;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 45vh;
       background: rgba(5, 8, 20, 0.92);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       color: #e0e6f0;
-      padding: 52px 36px 36px;
+      padding: 48px 40px 28px;
       overflow-y: auto;
       z-index: 10;
-      transform: translateX(100%);
+      transform: translateY(100%);
     }
 
     #fact-close {
@@ -51,18 +51,18 @@
     #fact-close:hover { color: #fff; }
 
     #fact-name {
-      font-size: 44px;
+      font-size: 32px;
       font-weight: 700;
       letter-spacing: -0.02em;
-      margin-bottom: 24px;
+      margin-bottom: 16px;
       color: #fff;
     }
 
     #fact-stats {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 32px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
     }
 
     .stat {
@@ -84,7 +84,12 @@
       color: #d0dcec;
     }
 
-    .fact-section { margin-bottom: 28px; }
+    #fact-body {
+      display: flex;
+      gap: 40px;
+    }
+
+    .fact-section { flex: 1; }
     .fact-section h2 {
       font-size: 11px;
       text-transform: uppercase;
@@ -99,7 +104,7 @@
     }
 
     #fact-sheet.open {
-      transform: translateX(0);
+      transform: translateY(0);
     }
 
     #fact-close:focus-visible {
@@ -146,13 +151,15 @@
         <span class="stat-value" id="fact-period"></span>
       </div>
     </div>
-    <div class="fact-section">
-      <h2>Discovery &amp; History</h2>
-      <p id="fact-discovery"></p>
-    </div>
-    <div class="fact-section">
-      <h2>Significance for Humans</h2>
-      <p id="fact-significance"></p>
+    <div id="fact-body">
+      <div class="fact-section">
+        <h2>Discovery &amp; History</h2>
+        <p id="fact-discovery"></p>
+      </div>
+      <div class="fact-section">
+        <h2>Significance for Humans</h2>
+        <p id="fact-significance"></p>
+      </div>
     </div>
   </div>
 
@@ -375,7 +382,7 @@ function setVB(vb) {
 
 function getTargetVB(s) {
   // Place planet at ~35% from left of the zoomed view (visible behind fact sheet)
-  return [s.x - ZOOM_W * 0.35, s.y - ZOOM_H / 2, ZOOM_W, ZOOM_H];
+  return [s.x - ZOOM_W / 2, s.y - ZOOM_H * 0.65, ZOOM_W, ZOOM_H];
 }
 
 function tick(ts) {
