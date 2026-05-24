@@ -103,6 +103,18 @@
       color: #a8bcce;
     }
 
+    @keyframes planet-spin {
+      to { transform: rotate(360deg); }
+    }
+    .planet-body.spinning {
+      animation: planet-spin 8s linear infinite;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .planet-body.spinning { animation: none; }
+    }
+
     #fact-sheet.open {
       transform: translateY(0);
     }
@@ -124,9 +136,9 @@
   <svg id="solar-system"
        viewBox="-700 -350 1400 700"
        preserveAspectRatio="xMidYMid meet">
+    <defs id="planet-clips"></defs>
     <g id="stars"></g>
     <g id="orbits"></g>
-    <circle id="sun" cx="0" cy="0" r="22" fill="#FDB813" />
     <g id="planets"></g>
   </svg>
 
@@ -166,7 +178,7 @@
   <script>
     const PLANETS = [
   {
-    name: 'Mercury', color: '#b5b5b5', orbitRx: 60, orbitRy: 12, size: 4,
+    name: 'Mercury', color: '#b5b5b5', orbitRx: 60, orbitRy: 12, size: 4, texture: 'textures/mercury.jpg',
     e: 0.20563, M0: 174.7948, n: 4.09234, w: 77.4552,
     facts: {
       diameter: '4,879 km', distanceFromSun: '57.9 million km',
@@ -249,8 +261,6 @@
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const FULL_VB   = [-700, -350, 1400, 700];
-const ZOOM_W    = 350;
-const ZOOM_H    = 175;
 const SPEED_SCALE = 6;       // simulated days per real second
 const ZOOM_DURATION = 300;   // ms
 
@@ -320,6 +330,14 @@ let state = [];
 
 function initPlanets() {
   const g = document.getElementById('planets');
+
+  // Sun lives in this group so it can be depth-sorted with planets
+  const sunEl = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  sunEl.setAttribute('r', '22');
+  sunEl.setAttribute('fill', '#FDB813');
+  g.appendChild(sunEl);
+  // Sun is always at y=0 — used as the depth anchor when sorting
+  state.push({ y: 0, el: sunEl, _sun: true });
   for (const p of PLANETS) {
     const orbitCx = -p.e * p.orbitRx; // focus offset
     const angle   = computeInitialAngle(p);
@@ -331,22 +349,55 @@ function initPlanets() {
     g2.style.cursor = 'pointer';
     g2.style.willChange = 'transform';
 
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('r', p.size);
-    circle.setAttribute('fill', p.color);
+    const spinG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    spinG.classList.add('planet-body');
+
+    if (p.texture) {
+      const clipId = `clip-${p.name.toLowerCase()}`;
+      const clipPath = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+      clipPath.setAttribute('id', clipId);
+      const clipCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      clipCircle.setAttribute('r', p.size);
+      clipPath.appendChild(clipCircle);
+      document.getElementById('planet-clips').appendChild(clipPath);
+
+      const img = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+      img.setAttribute('href', p.texture);
+      img.setAttribute('x', -p.size);
+      img.setAttribute('y', -p.size);
+      img.setAttribute('width', p.size * 2);
+      img.setAttribute('height', p.size * 2);
+      img.setAttribute('clip-path', `url(#${clipId})`);
+      img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+      spinG.appendChild(img);
+    } else {
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('r', p.size);
+      circle.setAttribute('fill', p.color);
+
+      // Off-center highlight so rotation is visible on placeholder circles
+      const highlight = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      highlight.setAttribute('cx', (-p.size * 0.3).toFixed(1));
+      highlight.setAttribute('cy', (-p.size * 0.35).toFixed(1));
+      highlight.setAttribute('r',  (p.size * 0.2).toFixed(1));
+      highlight.setAttribute('fill', 'rgba(255,255,255,0.25)');
+
+      spinG.appendChild(circle);
+      spinG.appendChild(highlight);
+    }
 
     // Invisible larger hit area for easier clicking
     const hit = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     hit.setAttribute('r', Math.max(p.size + 8, 16));
     hit.setAttribute('fill', 'transparent');
 
-    g2.appendChild(circle);
+    g2.appendChild(spinG);
     g2.appendChild(hit);
     g.appendChild(g2);
 
     const s = { data: p, angle, x, y, orbitCx, el: g2 };
     state.push(s);
-    g2.addEventListener('click', () => onPlanetClick(s));
+    g2.addEventListener('click', (e) => { e.stopPropagation(); onPlanetClick(s); });
   }
 }
 
@@ -360,6 +411,8 @@ let lastTs = null;
 // ── Zoom state ────────────────────────────────────────────────────────────────
 let currentVB     = [...FULL_VB];
 let zoomedPlanet  = null;
+let depthOrder    = [];
+let isPaused      = false;
 let isZoomingIn   = false;
 let isZoomingOut  = false;
 let zoomStart     = null;
@@ -381,20 +434,35 @@ function setVB(vb) {
 }
 
 function getTargetVB(s) {
-  // Place planet at ~35% from left of the zoomed view (visible behind fact sheet)
-  return [s.x - ZOOM_W * 0.65, s.y - ZOOM_H * 0.6, ZOOM_W, ZOOM_H];
+  const w = s.data.size * 5;
+  const h = s.data.size * 2.5;
+  // Planet at 30% from left — centered in the visible 60% (fact sheet covers right 40%)
+  return [s.x - w * 0.30, s.y - h / 2, w, h];
 }
 
 function tick(ts) {
   const dt = lastTs ? (ts - lastTs) / 1000 : 0;
   lastTs = ts;
 
-  // Update all planet positions
-  for (const s of state) {
-    s.angle += s.data.n * (Math.PI / 180) * SPEED_SCALE * dt;
-    s.x = s.orbitCx + s.data.orbitRx * Math.cos(s.angle);
-    s.y = s.data.orbitRy * Math.sin(s.angle);
-    s.el.setAttribute('transform', `translate(${s.x.toFixed(2)}, ${s.y.toFixed(2)})`);
+  // Update all planet positions (skip when paused — planet is zoomed and frozen)
+  const g = document.getElementById('planets');
+  if (!isPaused) {
+    for (const s of state) {
+      if (s._sun) continue;
+      s.angle += s.data.n * (Math.PI / 180) * SPEED_SCALE * dt;
+      s.x = s.orbitCx + s.data.orbitRx * Math.cos(s.angle);
+      s.y = s.data.orbitRy * Math.sin(s.angle);
+      s.el.setAttribute('transform', `translate(${s.x.toFixed(2)}, ${s.y.toFixed(2)})`);
+    }
+  }
+
+  // Depth-sort: only reorder DOM when the z-order actually changes.
+  // Constant reordering at 60fps breaks mouse clicks (mousedown/mouseup fire on different elements).
+  const sorted = [...state].sort((a, b) => a.y - b.y);
+  const orderChanged = sorted.some((s, i) => s !== depthOrder[i]);
+  if (orderChanged) {
+    depthOrder = sorted;
+    for (const s of sorted) g.appendChild(s.el);
   }
 
   // Zoom in
@@ -402,7 +470,7 @@ function tick(ts) {
     const t = Math.min((ts - zoomStart) / ZOOM_DURATION, 1);
     setVB(lerpVB(fromVB, getTargetVB(zoomedPlanet), easeInOutCubic(t)));
     if (t >= 1) isZoomingIn = false;
-  // Track planet continuously while zoomed
+  // Keep viewBox locked on the frozen planet
   } else if (zoomedPlanet && !isZoomingOut) {
     setVB(getTargetVB(zoomedPlanet));
   }
@@ -444,6 +512,10 @@ function closeFactSheet() {
 
 function zoomOut() {
   closeFactSheet();
+  if (zoomedPlanet) {
+    zoomedPlanet.el.querySelector('.planet-body').classList.remove('spinning');
+  }
+  isPaused     = false;
   fromVB       = [...currentVB];
   isZoomingOut = true;
   isZoomingIn  = false;
@@ -453,13 +525,20 @@ function zoomOut() {
 
 function onPlanetClick(s) {
   if (zoomedPlanet === s) return;
+  if (zoomedPlanet) {
+    zoomedPlanet.el.querySelector('.planet-body').classList.remove('spinning');
+  }
+  isPaused     = true;
   zoomedPlanet = s;
+  s.el.querySelector('.planet-body').classList.add('spinning');
   fromVB       = [...currentVB];
   isZoomingIn  = true;
   isZoomingOut = false;
   zoomStart    = performance.now();
   openFactSheet(s.data);
 }
+
+SVG.addEventListener('click', () => { if (zoomedPlanet) zoomOut(); });
 
 if (!prefersReducedMotion.matches) {
   requestAnimationFrame(tick);
