@@ -22,9 +22,9 @@
     #fact-sheet {
       position: fixed;
       bottom: 0;
-      left: 0;
-      width: 100%;
-      height: 45vh;
+      right: 0;
+      width: 40%;
+      height: 70vh;
       background: rgba(5, 8, 20, 0.92);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
@@ -60,9 +60,9 @@
 
     #fact-stats {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-      margin-bottom: 20px;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 28px;
     }
 
     .stat {
@@ -382,7 +382,7 @@ function setVB(vb) {
 
 function getTargetVB(s) {
   // Place planet at ~35% from left of the zoomed view (visible behind fact sheet)
-  return [s.x - ZOOM_W / 2, s.y - ZOOM_H * 0.65, ZOOM_W, ZOOM_H];
+  return [s.x - ZOOM_W * 0.65, s.y - ZOOM_H * 0.6, ZOOM_W, ZOOM_H];
 }
 
 function tick(ts) {
